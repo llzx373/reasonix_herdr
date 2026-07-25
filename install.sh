@@ -8,12 +8,15 @@
 #   ./install.sh --project-dir /path/to/project  # 安装到指定项目
 #
 # 选项:
-#   --global       配置全局 Reasonix hooks（推荐，所有项目生效）
-#   --project      配置当前工作区项目级 hooks
-#   --project-dir  配置指定目录的项目级 hooks
-#   --skip-build   跳过构建步骤（假设已构建）
-#   --dry-run      仅预览将要执行的操作，不做实际修改
-#   -h, --help     显示此帮助信息
+#   --global           配置全局 Reasonix hooks（推荐，所有项目生效）
+#   --project          配置当前工作区项目级 hooks
+#   --project-dir      配置指定目录的项目级 hooks
+#   --install-wrapper  安装 reasonix wrapper 到 PATH（启动时预注册 herdr agent）
+#   --no-wrapper       跳过 wrapper 安装
+#   --wrapper-dir DIR  wrapper 安装目录（默认：/usr/local/bin）
+#   --skip-build       跳过构建步骤（假设已构建）
+#   --dry-run          仅预览将要执行的操作，不做实际修改
+#   -h, --help         显示此帮助信息
 
 set -euo pipefail
 
@@ -26,10 +29,12 @@ BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 # ── 默认值 ──
-SCOPE=""          # global | project
-PROJECT_DIR=""    # 仅 SCOPE=project 时使用
+SCOPE=""              # global | project
+PROJECT_DIR=""        # 仅 SCOPE=project 时使用
 SKIP_BUILD=false
 DRY_RUN=false
+INSTALL_WRAPPER=""    # yes | no（空 = 交互询问）
+WRAPPER_DIR="/usr/local/bin"
 HOOK_BINARY_NAME="herdr-agent-state"
 
 # ── 解析参数 ──
@@ -48,6 +53,18 @@ while [[ $# -gt 0 ]]; do
       PROJECT_DIR="$2"
       shift 2
       ;;
+    --install-wrapper)
+      INSTALL_WRAPPER="yes"
+      shift
+      ;;
+    --no-wrapper)
+      INSTALL_WRAPPER="no"
+      shift
+      ;;
+    --wrapper-dir)
+      WRAPPER_DIR="$2"
+      shift 2
+      ;;
     --skip-build)
       SKIP_BUILD=true
       shift
@@ -64,18 +81,27 @@ reasonix-herdr 初始化安装脚本
   ./install.sh [选项]
 
 选项:
-  --global         配置全局 Reasonix hooks (~/.reasonix/settings.json)
-  --project        配置当前工作区项目级 hooks (.reasonix/settings.json)
+  --global           配置全局 Reasonix hooks (~/.reasonix/settings.json)
+  --project          配置当前工作区项目级 hooks (.reasonix/settings.json)
   --project-dir DIR  配置指定目录的项目级 hooks
-  --skip-build     跳过构建步骤（假设已构建）
-  --dry-run        仅预览，不做实际修改
-  -h, --help       显示此帮助信息
+  --install-wrapper  安装 reasonix wrapper 到 PATH
+  --no-wrapper       跳过 wrapper 安装
+  --wrapper-dir DIR  wrapper 安装目录（默认：/usr/local/bin）
+  --skip-build       跳过构建步骤（假设已构建）
+  --dry-run          仅预览，不做实际修改
+  -h, --help         显示此帮助信息
 
 安装步骤:
   1. 检测前置条件 (bun / npm + node)
   2. 安装依赖 (bun install)
   3. 编译二进制 (bun run build)
   4. 将 hook 配置写入目标 settings.json
+  5. (可选) 安装 reasonix wrapper 到 PATH
+
+Wrapper 说明:
+  安装后，每次敲 reasonix 启动时，wrapper 会先向 herdr 预注册
+  reasonix agent（idle 状态）。这样 Reasonix 一启动，herdr 列表中
+  就能看到它，不用等到第一次会话。
 EOF
       exit 0
       ;;
@@ -112,7 +138,7 @@ run() {
 # ── 前置检查 ──
 
 check_prerequisites() {
-  step "1/4 检测前置条件"
+  step "1/5 检测前置条件"
 
   # 优先检测 bun
   if command -v bun &>/dev/null; then
@@ -144,7 +170,7 @@ check_prerequisites() {
 # ── 安装依赖 ──
 
 install_dependencies() {
-  step "2/4 安装依赖"
+  step "2/5 安装依赖"
 
   if $SKIP_BUILD; then
     info "跳过依赖安装 (--skip-build)"
@@ -162,7 +188,7 @@ install_dependencies() {
 # ── 构建 ──
 
 build() {
-  step "3/4 构建二进制"
+  step "3/5 构建二进制"
 
   if $SKIP_BUILD; then
     info "跳过构建 (--skip-build)"
@@ -265,62 +291,57 @@ print(f"已添加 {added} 个 hook 条目到 {target_path}")
 PYEOF
 }
 
-remove_hooks_json() {
-  # 从目标 settings.json 中移除 reasonix-herdr 的 hook 条目
-  # $1: 目标 settings.json 路径
-  local target="$1"
+# ── 安装 reasonix wrapper ──
 
-  python3 - "$target" << 'PYEOF'
-import json, sys, os
+install_wrapper() {
+  step "5/5 安装 reasonix wrapper"
 
-target_path = sys.argv[1]
+  # 找到真实 reasonix 路径
+  local real_reasonix
+  real_reasonix=$(command -v reasonix 2>/dev/null || true)
 
-if not os.path.exists(target_path):
-    print(f"{target_path} 不存在，无需清理")
-    sys.exit(0)
+  if [ -z "$real_reasonix" ]; then
+    warn "未在 PATH 中找到 reasonix，跳过 wrapper 安装"
+    warn "安装 Reasonix 后重新运行: ./install.sh --skip-build --install-wrapper"
+    return 0
+  fi
 
-with open(target_path, 'r') as f:
-    target = json.load(f)
+  # 检测是否已经是 wrapper
+  if grep -q "herdr:reasonix" "$real_reasonix" 2>/dev/null; then
+    info "reasonix 已经是 herdr wrapper，跳过"
+    return 0
+  fi
 
-if "hooks" not in target:
-    print(f"{target_path} 中无 hooks 配置，无需清理")
-    sys.exit(0)
+  local target="$WRAPPER_DIR/reasonix"
 
-# 移除 source 为 herdr:reasonix 的条目 — 通过 command 包含 herdr-agent-state 来判断
-removed = 0
-for event in list(target["hooks"].keys()):
-    entries = target["hooks"][event]
-    new_entries = [
-        e for e in entries
-        if "herdr-agent-state" not in e.get("command", "")
-    ]
-    if len(new_entries) < len(entries):
-        removed += len(entries) - len(new_entries)
-    if new_entries:
-        target["hooks"][event] = new_entries
-    else:
-        del target["hooks"][event]
+  info "真实 reasonix: $real_reasonix"
+  info "Wrapper 目标:  $target"
 
-if removed == 0:
-    print(f"{target_path} 中未找到 reasonix-herdr hook 条目")
-    sys.exit(0)
+  if $DRY_RUN; then
+    dry "将创建 $target → $real_reasonix"
+    return 0
+  fi
 
-# 清理空的 hooks 键
-if not target["hooks"]:
-    del target["hooks"]
+  # 确保目标目录存在
+  run mkdir -p "$WRAPPER_DIR"
 
-with open(target_path, 'w') as f:
-    json.dump(target, f, indent=2, ensure_ascii=False)
-    f.write('\n')
+  # 如果已有同名文件（非 wrapper），备份
+  if [ -f "$target" ] && ! grep -q "herdr:reasonix" "$target" 2>/dev/null; then
+    run mv "$target" "${target}.bak"
+    info "已有 reasonix 已备份为 reasonix.bak"
+  fi
 
-print(f"已从 {target_path} 移除 {removed} 个 hook 条目")
-PYEOF
+  # 生成 wrapper 脚本
+  sed "s|{{REAL_REASONIX}}|$real_reasonix|g" "$PROJECT_ROOT/bin/reasonix" | run tee "$target" > /dev/null
+  run chmod 755 "$target"
+
+  success "Wrapper 已安装: $target"
 }
 
 # ── 配置 hooks ──
 
 configure_global() {
-  step "4/4 配置全局 Reasonix hooks"
+  step "4/5 配置全局 Reasonix hooks"
 
   local target="$HOME/.reasonix/settings.json"
   local hook_cmd
@@ -339,7 +360,7 @@ configure_global() {
 }
 
 configure_project() {
-  step "4/4 配置项目级 Reasonix hooks"
+  step "4/5 配置项目级 Reasonix hooks"
 
   local project_dir="${PROJECT_DIR:-$PWD}"
   local target="$project_dir/.reasonix/settings.json"
@@ -381,6 +402,41 @@ choose_scope() {
   esac
 }
 
+choose_wrapper() {
+  # 如果已有命令行参数，跳过
+  if [ -n "$INSTALL_WRAPPER" ]; then
+    return 0
+  fi
+
+  # 检查 reasonix 是否在 PATH 中
+  if ! command -v reasonix &>/dev/null; then
+    INSTALL_WRAPPER="no"
+    return 0
+  fi
+
+  # 检测是否已经是 wrapper
+  if grep -q "herdr:reasonix" "$(command -v reasonix)" 2>/dev/null; then
+    INSTALL_WRAPPER="no"
+    return 0
+  fi
+
+  echo ""
+  echo -e "${BOLD}安装 reasonix wrapper?${NC}"
+  echo "  wrapper 让你敲 reasonix 启动时自动在 herdr 中预注册 agent，"
+  echo "  启动即刻出现在 herdr 列表中，无需等到第一次会话。"
+  echo "  [1] 是 — 安装到 ${WRAPPER_DIR}/reasonix (推荐)"
+  echo "  [2] 否 — 跳过"
+  echo ""
+  read -r -p "请输入 [1/2] (默认: 1): " choice
+  choice="${choice:-1}"
+
+  case "$choice" in
+    1) INSTALL_WRAPPER="yes" ;;
+    2) INSTALL_WRAPPER="no" ;;
+    *) error "无效选择: $choice"; exit 1 ;;
+  esac
+}
+
 # ── 主流程 ──
 
 main() {
@@ -406,12 +462,20 @@ main() {
     *)       error "内部错误: SCOPE 未设置"; exit 1 ;;
   esac
 
+  choose_wrapper
+  if [ "$INSTALL_WRAPPER" = "yes" ]; then
+    install_wrapper
+  fi
+
   echo ""
   echo -e "${BOLD}${GREEN}╔══════════════════════════════════════╗${NC}"
   echo -e "${BOLD}${GREEN}║  安装完成！                        ║${NC}"
   echo -e "${BOLD}${GREEN}╚══════════════════════════════════════╝${NC}"
   echo ""
-  echo -e "下一步: ${BOLD}重启 Reasonix 桌面端${NC} 使配置生效（/new 不够）"
+  echo -e "下一步: ${BOLD}重启 Reasonix 桌面端${NC} 使 hook 配置生效（/new 不够）"
+  if [ "$INSTALL_WRAPPER" = "yes" ]; then
+    echo -e "之后直接敲 ${BOLD}reasonix${NC} 即可自动预注册 herdr agent"
+  fi
   echo ""
 }
 
