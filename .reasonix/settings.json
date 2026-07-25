@@ -1,0 +1,46 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "command": "{{HOOK_PATH}}",
+        "description": "Report agent session start to herdr",
+        "timeout": 3000
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "command": "{{HOOK_PATH}}",
+        "description": "Report agent working state on user prompt",
+        "timeout": 3000
+      }
+    ],
+    "PreToolUse": [
+      {
+        "command": "{{HOOK_PATH}}",
+        "description": "Report agent working state on tool use",
+        "timeout": 3000
+      }
+    ],
+    "Notification": [
+      {
+        "command": "{{HOOK_PATH}}",
+        "description": "Report agent blocked state on notification",
+        "timeout": 3000
+      }
+    ],
+    "Stop": [
+      {
+        "command": "{{HOOK_PATH}}",
+        "description": "Report agent idle state on turn end",
+        "timeout": 3000
+      }
+    ],
+    "StopFailure": [
+      {
+        "command": "{{HOOK_PATH}}",
+        "description": "Report agent idle state on failure",
+        "timeout": 3000
+      }
+    ]
+  }
+}

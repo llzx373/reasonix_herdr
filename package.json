@@ -1,0 +1,16 @@
+{
+  "name": "reasonix-herdr",
+  "version": "0.1.0",
+  "description": "Herdr integration for Reasonix — observe and manage AI agent state via herdr's Socket API",
+  "private": true,
+  "scripts": {
+    "build": "bun build --compile --target=bun --outfile=dist/herdr-agent-state src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist/",
+    "prebuild": "npm run clean"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^5.8.0"
+  }
+}
