@@ -80,6 +80,7 @@ export async function reportState(
   // 去重连续重复状态
   if (state === lastReportedState && sessionId === lastReportedSessionId) return;
   lastReportedState = state;
+  lastReportedSessionId = sessionId ?? null;
 
   const params: HerdrReportAgentParams = {
     pane_id: pid,

@@ -5,7 +5,7 @@
 #   ./uninstall.sh                  # 交互式卸载（会询问清理范围）
 #   ./uninstall.sh --global         # 仅清理全局 hooks
 #   ./uninstall.sh --project        # 仅清理当前项目 hooks
-#   ./uninstall.sh --all            # 清理全部（hooks + 构建产物 + wrapper + 依赖）
+#   ./uninstall.sh --all            # 清理全部（hooks + 构建产物 + 依赖）
 #   ./uninstall.sh --dry-run        # 仅预览
 #   -h, --help                      # 显示此帮助信息
 
@@ -24,10 +24,8 @@ CLEAN_GLOBAL=false
 CLEAN_PROJECT=false
 CLEAN_BUILD=false
 CLEAN_DEPS=false
-CLEAN_WRAPPER=false
 DRY_RUN=false
 SCOPE=""
-WRAPPER_DIR="/usr/local/bin"
 
 # ── 解析参数 ──
 while [[ $# -gt 0 ]]; do
@@ -47,7 +45,6 @@ while [[ $# -gt 0 ]]; do
       CLEAN_PROJECT=true
       CLEAN_BUILD=true
       CLEAN_DEPS=true
-      CLEAN_WRAPPER=true
       SCOPE="all"
       shift
       ;;
@@ -71,7 +68,6 @@ reasonix-herdr 卸载脚本
 
 卸载内容:
   - 从 settings.json 中移除 reasonix-herdr 的 hook 条目
-  - (--all) 删除 reasonix wrapper 脚本
   - (--all) 删除 dist/ 构建产物
   - (--all) 删除 node_modules/ 依赖目录
 EOF
@@ -225,38 +221,6 @@ clean_deps() {
   fi
 }
 
-# ── 清理 wrapper ──
-
-clean_wrapper() {
-  step "清理 reasonix wrapper"
-  local target="$WRAPPER_DIR/reasonix"
-
-  if [ ! -f "$target" ]; then
-    info "$target 不存在，跳过"
-    return 0
-  fi
-
-  # 只清理 herdr 生成的 wrapper，不动其他文件
-  if ! grep -q "herdr:reasonix" "$target" 2>/dev/null; then
-    info "$target 不是 herdr wrapper，跳过"
-    return 0
-  fi
-
-  if $DRY_RUN; then
-    dry "将删除 $target"
-    return 0
-  fi
-
-  rm -f "$target"
-  success "Wrapper 已删除: $target"
-
-  # 如果有备份，恢复
-  if [ -f "${target}.bak" ]; then
-    mv "${target}.bak" "$target"
-    success "已恢复原始 reasonix: $target"
-  fi
-}
-
 # ── 交互式选择 ──
 
 choose_scope() {
@@ -269,7 +233,7 @@ choose_scope() {
   echo "  [1] 仅清理全局 hooks (~/.reasonix/settings.json)"
   echo "  [2] 仅清理项目级 hooks (.reasonix/settings.json)"
   echo "  [3] 清理全局 + 项目 hooks"
-  echo "  [4] 全部清理 (hooks + wrapper + 构建产物 + 依赖)"
+  echo "  [4] 全部清理 (hooks + 构建产物 + 依赖)"
   echo ""
   read -r -p "请输入 [1/2/3/4] (默认: 3): " choice
   choice="${choice:-3}"
@@ -278,7 +242,7 @@ choose_scope() {
     1) CLEAN_GLOBAL=true ;;
     2) CLEAN_PROJECT=true ;;
     3) CLEAN_GLOBAL=true; CLEAN_PROJECT=true ;;
-    4) CLEAN_GLOBAL=true; CLEAN_PROJECT=true; CLEAN_BUILD=true; CLEAN_DEPS=true; CLEAN_WRAPPER=true ;;
+    4) CLEAN_GLOBAL=true; CLEAN_PROJECT=true; CLEAN_BUILD=true; CLEAN_DEPS=true ;;
     *) error "无效选择: $choice"; exit 1 ;;
   esac
 }
@@ -294,7 +258,6 @@ confirm() {
   echo -e "${YELLOW}${BOLD}即将执行以下操作:${NC}"
   $CLEAN_GLOBAL  && echo "  • 清理全局 hooks (~/.reasonix/settings.json)"
   $CLEAN_PROJECT && echo "  • 清理项目级 hooks (.reasonix/settings.json)"
-  $CLEAN_WRAPPER && echo "  • 删除 reasonix wrapper"
   $CLEAN_BUILD   && echo "  • 删除构建产物 (dist/)"
   $CLEAN_DEPS    && echo "  • 删除依赖目录 (node_modules/)"
 
@@ -324,7 +287,6 @@ main() {
 
   $CLEAN_GLOBAL  && clean_global_hooks
   $CLEAN_PROJECT && clean_project_hooks
-  $CLEAN_WRAPPER && clean_wrapper
   $CLEAN_BUILD   && clean_build
   $CLEAN_DEPS    && clean_deps
 

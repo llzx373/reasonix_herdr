@@ -10,7 +10,6 @@
 - [工作原理](#工作原理)
 - [Agent 状态映射](#agent-状态映射)
 - [快速开始](#快速开始)
-- [Reasonix Wrapper（启动即显示）](#reasonix-wrapper启动即显示)
 - [安装脚本](#安装脚本)
 - [卸载](#卸载)
 - [验证安装](#验证安装)
@@ -53,7 +52,9 @@ cd reasonix_herdr
 # 3. 重启 Reasonix 桌面端，然后在 herdr 中启动 Reasonix 即可
 ```
 
-安装脚本会自动完成：前置检查 → 安装依赖 → 编译二进制 → 配置 hook。你只需在提示时选择全局安装（推荐，所有 Reasonix 项目生效）或项目级安装。
+安装脚本会自动完成：前置检查 → 安装依赖 → 编译二进制 → 配置 hook。你只需在提示时选择全局安装（推荐，所有 Reasonix 项目生效）或项目级安装。Agent 状态通过 Reasonix 的 hook 机制自动同步。
+
+> **注意：** hook 是事件驱动的——agent 状态在 Reasonix 触发第一个事件（如 `SessionStart`）后才会在 herdr 中显示。启动后发起第一条消息即可看到。
 
 详细说明见下方各节。
 
@@ -88,11 +89,7 @@ cd reasonix_herdr
 
 ### 为什么启动后不会立刻显示在 herdr 中？
 
-Reasonix 使用的是 **hook 驱动** 模式 — `herdr-agent-state` 只在 Reasonix 触发生命周期事件时才被调用。Reasonix 的 hook 不包含「启动时」事件（如 `SessionReady`），所以在你发起第一条消息、触发 `SessionStart` 之前，herdr 并不知道这个 agent 的存在。
-
-对比 Claude Code、Codex 等 agent，它们能被 herdr 通过 **屏幕快照检测**（screen manifest）自动发现，一启动就能显示。Reasonix 不在此列表中。
-
-**解决方案：安装 Reasonix Wrapper。** 一个轻量包装脚本，在启动 Reasonix 时先向 herdr 预注册 `idle` 状态，之后你敲 `reasonix` 启动，herdr 列表中立刻就能看到它。安装脚本会询问你是否需要。
+Reasonix 使用的是 **hook 驱动** 模式 — `herdr-agent-state` 只在 Reasonix 触发生命周期事件时才被调用。启动后发起第一条对话触发 `SessionStart` 事件即可。
 
 ## 快速开始
 
@@ -118,7 +115,6 @@ Reasonix 使用的是 **hook 驱动** 模式 — `herdr-agent-state` 只在 Reas
 2. 安装依赖
 3. 编译为独立二进制
 4. 将 hook 配置写入对应的 `settings.json`
-5. （可选）安装 reasonix wrapper 到 PATH
 
 ### 方式二：手动构建和配置
 
@@ -170,45 +166,6 @@ bun run build
 
 配置生效需要**重启 Reasonix 桌面端**（仅 `/new` 重新加载会话是不够的）。
 
-## Reasonix Wrapper（启动即显示）
-
-### 原理
-
-Wrapper 是一个轻量脚本，安装到 `/usr/local/bin/reasonix`，在真正的 `reasonix` 之前执行：
-
-```bash
-# 1. 先向 herdr 预注册 agent（idle 状态）
-herdr pane report-agent "$HERDR_PANE_ID" --source herdr:reasonix --agent reasonix --state idle
-# 2. 然后启动真正的 Reasonix（exec 替换，PID 不变）
-exec /真实路径/reasonix "$@"
-```
-
-只在 herdr 环境中才预注册，普通终端使用完全不受影响。
-
-### 安装
-
-安装脚本会询问是否安装 wrapper（需要 `reasonix` 已在 PATH 中）：
-
-```bash
-./install.sh --install-wrapper         # 强制安装
-./install.sh --global --install-wrapper # 全局 hook + wrapper
-```
-
-也支持独立安装（不重新构建和配置 hook）：
-
-```bash
-./install.sh --skip-build --install-wrapper
-```
-
-### 卸载
-
-```bash
-./uninstall.sh --all                  # 全部清理含 wrapper
-# 或者
-rm /usr/local/bin/reasonix            # 手动删除
-# 如果存在备份，会恢复为原始的 reasonix
-```
-
 ## 安装脚本
 
 ### 用法
@@ -224,9 +181,6 @@ rm /usr/local/bin/reasonix            # 手动删除
 | `--global` | 配置全局 Reasonix hooks（`~/.reasonix/settings.json`） |
 | `--project` | 配置当前工作区项目级 hooks |
 | `--project-dir <路径>` | 配置指定目录的项目级 hooks |
-| `--install-wrapper` | 安装 reasonix wrapper 到 PATH（启动时预注册 herdr agent） |
-| `--no-wrapper` | 跳过 wrapper 安装 |
-| `--wrapper-dir <目录>` | wrapper 安装目录（默认: `/usr/local/bin`） |
 | `--skip-build` | 跳过构建步骤（假设已构建） |
 | `--dry-run` | 仅预览将要执行的操作，不做实际修改 |
 | `-h, --help` | 显示帮助信息 |
@@ -247,11 +201,7 @@ rm /usr/local/bin/reasonix            # 手动删除
 ## 卸载
 
 ```bash
-# 交互式卸载（会询问清理范围）
-./uninstall.sh
-
-# 完全清理（hooks + 构建产物 + 依赖）
-./uninstall.sh --all
+./uninstall.sh --all     # 清理 hooks + 构建产物 + 依赖
 ```
 
 卸载脚本会自动从你的 `settings.json` 中移除 herdr hook 条目，不会影响其他 hook 配置。
@@ -279,8 +229,6 @@ reasonix_herdr/
 │   ├── types.ts           # 类型定义 + 事件→状态映射
 │   ├── herdr-socket.ts    # herdr Unix Socket 客户端 (fire-and-forget)
 │   └── reporter.ts        # 状态报告器（去重、序列号、session 管理）
-├── bin/
-│   └── reasonix           # Wrapper 脚本模板（含 {{REAL_REASONIX}} 占位符）
 ├── .reasonix/
 │   └── settings.json      # Reasonix hook 配置模板 (含 {{HOOK_PATH}} 占位符)
 ├── dist/
